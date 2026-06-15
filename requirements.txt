@@ -5,7 +5,7 @@ httpx~=0.25.2
 aiohttp==3.9.0
 curl_cffi==0.5.10
 beautifulsoup4==4.12.2
-lxml==4.9.3
+lxml>=5.1.0
 aiofiles==23.2.1
 user_agent==0.1.10
 fake-useragent==1.4.0
