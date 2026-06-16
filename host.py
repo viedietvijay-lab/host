@@ -1,3 +1,9 @@
+#!/usr/bin/env python3
+"""
+👑 VIEDIET HOST BOT - FIXED VERSION
+Telegram Python Hosting Bot with safe editing
+"""
+
 import os
 import subprocess
 import re
@@ -18,23 +24,20 @@ from pathlib import Path
 BOT_TOKEN = "8832181426:AAHslqQXqbyZatMUHSfL9d6qeNo5mrUUWHk"
 DATA_FILE = "user_data.json"
 CHANNELS_FILE = "force_channels.json"
-ADMIN_IDS = [8139558808,1364476174]  # Sirf yeh admin
+ADMIN_IDS = [8139558808, 1364476174]
 BOT_NAME = "𝐕𝐢𝐞𝐝𝐢𝐞𝐭 𝐇𝐨𝐬𝐭"
-MAX_FILES_PER_USER = 1  # Normal user ke liye sirf 1 file
+MAX_FILES_PER_USER = 1
 
 bot = telebot.TeleBot(BOT_TOKEN)
 os.makedirs("user_scripts", exist_ok=True)
 os.makedirs("backups", exist_ok=True)
 
-# Track running scripts
 running = {}
 user_cooldown = {}
 
-# BOT ON/OFF STATUS (Admin isko toggle kar sakta hai)
 BOT_STATUS_FILE = "bot_status.json"
 
 def get_bot_status():
-    """Check if bot is ON or OFF"""
     if os.path.exists(BOT_STATUS_FILE):
         try:
             with open(BOT_STATUS_FILE, 'r') as f:
@@ -45,9 +48,29 @@ def get_bot_status():
     return "on", ""
 
 def set_bot_status(status, reason=""):
-    """Set bot ON/OFF status (Admin only)"""
     with open(BOT_STATUS_FILE, 'w') as f:
         json.dump({"status": status, "reason": reason, "updated": time.time()}, f, indent=2)
+
+# ============================================
+# SAFE EDIT FUNCTION - FIXES THE ERROR
+# ============================================
+
+def safe_edit_message(chat_id, msg_id, text, parse_mode="Markdown", reply_markup=None):
+    """Safe edit - handles 'message not modified' error"""
+    try:
+        bot.edit_message_text(text, chat_id, msg_id, parse_mode=parse_mode, reply_markup=reply_markup)
+    except Exception as e:
+        if "message is not modified" in str(e):
+            pass  # Ignore - same content
+        else:
+            raise e
+
+def safe_answer_callback(call_id, text, show_alert=False):
+    """Safe callback answer"""
+    try:
+        bot.answer_callback_query(call_id, text, show_alert=show_alert)
+    except Exception as e:
+        pass  # Ignore callback errors
 
 # ============================================
 # FORCE CHANNELS MANAGEMENT
@@ -121,21 +144,20 @@ def get_files(uid):
     return data["users"].get(str(uid), {}).get("files", [])
 
 def get_max_files(uid):
-    """Admin ke liye unlimited, normal user ke liye 1"""
     if is_admin(uid):
-        return 999999  # Unlimited for admin
-    return MAX_FILES_PER_USER  # 1 for normal users
+        return 999999
+    data = load()
+    extra = data["users"].get(str(uid), {}).get("extra_slots", 0)
+    return MAX_FILES_PER_USER + extra
 
 def can_upload(uid):
     if is_admin(uid):
         return True, "ok"
     
-    # Cooldown check (10 seconds)
     if uid in user_cooldown:
         if time.time() - user_cooldown[uid] < 10:
             return False, f"Wait {int(10 - (time.time() - user_cooldown[uid]))}s between uploads"
     
-    # File limit check - Sirf 1 file for normal users
     files = get_files(uid)
     if len(files) >= MAX_FILES_PER_USER:
         return False, f"❌ You can only upload {MAX_FILES_PER_USER} file! Contact admin for more slots."
@@ -173,7 +195,7 @@ def install_packages(packages, chat_id, msg_id):
     results = []
     for pkg in packages:
         try:
-            bot.edit_message_text(f"📦 Installing: {pkg}...", chat_id, msg_id)
+            safe_edit_message(chat_id, msg_id, f"📦 Installing: {pkg}...")
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "install", pkg, "--quiet"],
                 capture_output=True,
@@ -228,44 +250,43 @@ def run_script(path, uid, name, chat_id):
         bot.send_message(chat_id, f"❌ *Error*: {str(e)[:200]}", parse_mode="Markdown")
 
 # ============================================
-# BEAUTIFUL KEYBOARDS
+# KEYBOARDS
 # ============================================
 
 def main_kb(uid=None):
     kb = InlineKeyboardMarkup(row_width=2)
     buttons = [
-        InlineKeyboardButton("📁 𝙼𝚢 𝙵𝚒𝚕𝚎𝚜", callback_data="files"),
-        InlineKeyboardButton("📊 𝚂𝚝𝚊𝚝𝚜", callback_data="stats"),
-        InlineKeyboardButton("❓ 𝙷𝚎𝚕𝚙", callback_data="help"),
-        InlineKeyboardButton("👥 𝚂𝚞𝚙𝚙𝚘𝚛𝚝", url="https://t.me/viedietlooterschat")
+        InlineKeyboardButton("📁 My Files", callback_data="files"),
+        InlineKeyboardButton("📊 Stats", callback_data="stats"),
+        InlineKeyboardButton("❓ Help", callback_data="help"),
+        InlineKeyboardButton("👥 Support", url="https://t.me/viedietlooterschat")
     ]
     kb.add(*buttons)
     
     if uid and is_admin(uid):
-        kb.add(InlineKeyboardButton("👑 𝙰𝚍𝚖𝚒𝚗 𝙿𝚊𝚗𝚎𝚕", callback_data="admin_panel"))
+        kb.add(InlineKeyboardButton("👑 Admin Panel", callback_data="admin_panel"))
     
     return kb
 
 def admin_panel_kb():
     kb = InlineKeyboardMarkup(row_width=2)
     
-    # Check bot status for button display
     bot_status, bot_reason = get_bot_status()
-    status_btn = "🔴 𝙱𝙾𝚃 𝙾𝙵𝙵" if bot_status == "off" else "🟢 𝙱𝙾𝚃 𝙾𝙽"
+    status_btn = "🔴 BOT OFF" if bot_status == "off" else "🟢 BOT ON"
     status_cmd = "bot_off" if bot_status == "on" else "bot_on"
     
     buttons = [
-        InlineKeyboardButton("📊 𝚂𝚎𝚛𝚟𝚎𝚛 𝚂𝚝𝚊𝚝𝚜", callback_data="adm_stats"),
-        InlineKeyboardButton("👥 𝙰𝚕𝚕 𝚄𝚜𝚎𝚛𝚜", callback_data="adm_users"),
-        InlineKeyboardButton("📱 𝙳𝚎𝚟𝚒𝚌𝚎 𝚃𝚛𝚊𝚌𝚔𝚎𝚛", callback_data="adm_devices"),
-        InlineKeyboardButton("🔗 𝙵𝚘𝚛𝚌𝚎 𝙲𝚑𝚊𝚗𝚗𝚎𝚕𝚜", callback_data="adm_channels"),
-        InlineKeyboardButton("📢 𝙱𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝", callback_data="adm_broadcast"),
-        InlineKeyboardButton("🚫 𝙱𝚊𝚗/𝚄𝚗𝚋𝚊𝚗", callback_data="adm_ban"),
-        InlineKeyboardButton("➕ 𝙶𝚒𝚟𝚎 𝙴𝚡𝚝𝚛𝚊 𝚂𝚕𝚘𝚝", callback_data="adm_give_slot"),
+        InlineKeyboardButton("📊 Server Stats", callback_data="adm_stats"),
+        InlineKeyboardButton("👥 All Users", callback_data="adm_users"),
+        InlineKeyboardButton("📱 Device Tracker", callback_data="adm_devices"),
+        InlineKeyboardButton("🔗 Force Channels", callback_data="adm_channels"),
+        InlineKeyboardButton("📢 Broadcast", callback_data="adm_broadcast"),
+        InlineKeyboardButton("🚫 Ban/Unban", callback_data="adm_ban"),
+        InlineKeyboardButton("➕ Give Extra Slot", callback_data="adm_give_slot"),
         InlineKeyboardButton(status_btn, callback_data=status_cmd),
-        InlineKeyboardButton("💾 𝙱𝚊𝚌𝚔𝚞𝚙", callback_data="adm_backup"),
-        InlineKeyboardButton("🗑️ 𝙲𝚕𝚎𝚊𝚛 𝙰𝚕𝚕", callback_data="adm_clear"),
-        InlineKeyboardButton("🔙 𝙱𝚊𝚌𝚔", callback_data="back")
+        InlineKeyboardButton("💾 Backup", callback_data="adm_backup"),
+        InlineKeyboardButton("🗑️ Clear All", callback_data="adm_clear"),
+        InlineKeyboardButton("🔙 Back", callback_data="back")
     ]
     kb.add(*buttons)
     return kb
@@ -276,27 +297,27 @@ def files_kb(uid):
     for f in files:
         icon = "🔄" if f["status"] == "run" else "⏸️"
         kb.add(InlineKeyboardButton(f"{icon} {f['name'][:30]}", callback_data=f"file_{f['name']}"))
-    kb.add(InlineKeyboardButton("🔙 𝙼𝚊𝚒𝚗 𝙼𝚎𝚗𝚞", callback_data="back"))
+    kb.add(InlineKeyboardButton("🔙 Main Menu", callback_data="back"))
     return kb
 
 def action_kb(name, status):
     kb = InlineKeyboardMarkup(row_width=2)
     if status == "run":
-        kb.add(InlineKeyboardButton("🛑 𝚂𝚝𝚘𝚙", callback_data=f"stop_{name}"))
+        kb.add(InlineKeyboardButton("🛑 Stop", callback_data=f"stop_{name}"))
     else:
-        kb.add(InlineKeyboardButton("▶️ 𝚂𝚝𝚊𝚛𝚝", callback_data=f"start_{name}"))
-    kb.add(InlineKeyboardButton("🗑️ 𝙳𝚎𝚕𝚎𝚝𝚎", callback_data=f"del_{name}"))
-    kb.add(InlineKeyboardButton("📋 𝚅𝚒𝚎𝚠 𝙲𝚘𝚍𝚎", callback_data=f"view_{name}"))
-    kb.add(InlineKeyboardButton("🔙 𝙱𝚊𝚌𝚔 𝚝𝚘 𝙵𝚒𝚕𝚎𝚜", callback_data="files"))
+        kb.add(InlineKeyboardButton("▶️ Start", callback_data=f"start_{name}"))
+    kb.add(InlineKeyboardButton("🗑️ Delete", callback_data=f"del_{name}"))
+    kb.add(InlineKeyboardButton("📋 View Code", callback_data=f"view_{name}"))
+    kb.add(InlineKeyboardButton("🔙 Back to Files", callback_data="files"))
     return kb
 
 def channels_management_kb():
     kb = InlineKeyboardMarkup(row_width=1)
     channels = load_force_channels()
     for ch in channels:
-        kb.add(InlineKeyboardButton(f"❌ 𝚁𝚎𝚖𝚘𝚟𝚎 @{ch['username']}", callback_data=f"remove_ch_{ch['username']}"))
-    kb.add(InlineKeyboardButton("➕ 𝙰𝚍𝚍 𝙲𝚑𝚊𝚗𝚗𝚎𝚕", callback_data="add_channel"))
-    kb.add(InlineKeyboardButton("🔙 𝙱𝚊𝚌𝚔 𝚝𝚘 𝙰𝚍𝚖𝚒𝚗", callback_data="admin_panel"))
+        kb.add(InlineKeyboardButton(f"❌ Remove @{ch['username']}", callback_data=f"remove_ch_{ch['username']}"))
+    kb.add(InlineKeyboardButton("➕ Add Channel", callback_data="add_channel"))
+    kb.add(InlineKeyboardButton("🔙 Back to Admin", callback_data="admin_panel"))
     return kb
 
 # ============================================
@@ -307,24 +328,22 @@ def channels_management_kb():
 def start(m):
     uid = m.from_user.id
     
-    # Check if bot is OFF
     bot_status, bot_reason = get_bot_status()
     if bot_status == "off":
-        bot.reply_to(m, f"🔴 *𝙱𝚘𝚝 𝚒𝚜 𝙾𝙵𝙵*\n\n𝚁𝚎𝚊𝚜𝚘𝚗: {bot_reason if bot_reason else '𝙼𝚊𝚒𝚗𝚝𝚎𝚗𝚊𝚗𝚌𝚎'}\n\n𝙿𝚕𝚎𝚊𝚜𝚎 𝚝𝚛𝚢 𝚊𝚐𝚊𝚒𝚗 𝚕𝚊𝚝𝚎𝚛.", parse_mode="Markdown")
+        bot.reply_to(m, f"🔴 *Bot is OFF*\n\nReason: {bot_reason if bot_reason else 'Maintenance'}\n\nPlease try again later.", parse_mode="Markdown")
         return
     
     if is_banned(uid):
-        bot.reply_to(m, "🚫 𝚈𝚘𝚞 𝚊𝚛𝚎 𝚋𝚊𝚗𝚗𝚎𝚍 𝚏𝚛𝚘𝚖 𝚞𝚜𝚒𝚗𝚐 𝚝𝚑𝚒𝚜 𝚋𝚘𝚝!")
+        bot.reply_to(m, "🚫 You are banned from using this bot!")
         return
     
     if not check_all_channels(uid):
-        bot.reply_to(m, f"🔒 *𝙹𝚘𝚒𝚗 𝚛𝚎𝚚𝚞𝚒𝚛𝚎𝚍 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜 𝚏𝚒𝚛𝚜𝚝!*", 
+        bot.reply_to(m, f"🔒 *Join required channels first!*", 
                     parse_mode="Markdown", reply_markup=get_join_keyboard())
         return
     
     chat_id = m.chat.id
     
-    # Track device
     data = load()
     device_id = hashlib.sha256(f"{uid}_{chat_id}_{time.time()}".encode()).hexdigest()[:16]
     
@@ -345,12 +364,12 @@ def start(m):
     
     welcome_msg = (
         f"✨ *{BOT_NAME}*\n\n"
-        f"🚀 *𝙿𝚘𝚠𝚎𝚛𝚏𝚞𝚕 𝙿𝚢𝚝𝚑𝚘𝚗 𝙷𝚘𝚜𝚝𝚒𝚗𝚐 𝙱𝚘𝚝*\n\n"
-        f"📁 𝚂𝚎𝚗𝚍 `.𝚙𝚢` 𝚏𝚒𝚕𝚎𝚜 𝚝𝚘 𝚑𝚘𝚜𝚝\n"
-        f"✅ 𝙽𝚘 𝚝𝚒𝚖𝚎 𝚕𝚒𝚖𝚒𝚝 𝚘𝚗 𝚜𝚌𝚛𝚒𝚙𝚝𝚜\n"
-        f"📦 𝙰𝚞𝚝𝚘-𝚒𝚗𝚜𝚝𝚊𝚕𝚕 𝚙𝚊𝚌𝚔𝚊𝚐𝚎𝚜\n"
-        f"📊 𝙼𝚊𝚡 {MAX_FILES_PER_USER} 𝚏𝚒𝚕𝚎(𝚜) 𝚙𝚎𝚛 𝚞𝚜𝚎𝚛\n\n"
-        f"👑 *𝙰𝚍𝚖𝚒𝚗 𝚑𝚊𝚜 𝚞𝚗𝚕𝚒𝚖𝚒𝚝𝚎𝚍 𝚜𝚕𝚘𝚝𝚜*"
+        f"🚀 *Powerful Python Hosting Bot*\n\n"
+        f"📁 Send `.py` files to host\n"
+        f"✅ No time limit on scripts\n"
+        f"📦 Auto-install packages\n"
+        f"📊 Max {MAX_FILES_PER_USER} file(s) per user\n\n"
+        f"👑 *Admin has unlimited slots*"
     )
     
     bot.reply_to(m, welcome_msg, parse_mode="Markdown", reply_markup=main_kb(uid))
@@ -359,9 +378,9 @@ def start(m):
 def admin_cmd(m):
     uid = m.from_user.id
     if is_admin(uid):
-        bot.reply_to(m, "👑 *𝙰𝚍𝚖𝚒𝚗 𝙲𝚘𝚗𝚝𝚛𝚘𝚕 𝙿𝚊𝚗𝚎𝚕*", parse_mode="Markdown", reply_markup=admin_panel_kb())
+        bot.reply_to(m, "👑 *Admin Control Panel*", parse_mode="Markdown", reply_markup=admin_panel_kb())
     else:
-        bot.reply_to(m, "❌ 𝙰𝚌𝚌𝚎𝚜𝚜 𝚍𝚎𝚗𝚒𝚎𝚍!")
+        bot.reply_to(m, "❌ Access denied!")
 
 @bot.message_handler(commands=['myfiles'])
 def myfiles_cmd(m):
@@ -369,44 +388,43 @@ def myfiles_cmd(m):
     
     bot_status, _ = get_bot_status()
     if bot_status == "off" and not is_admin(uid):
-        bot.reply_to(m, "🔴 𝙱𝚘𝚝 𝚒𝚜 𝚌𝚞𝚛𝚛𝚎𝚗𝚝𝚕𝚢 𝙾𝙵𝙵. 𝚃𝚛𝚢 𝚊𝚐𝚊𝚒𝚗 𝚕𝚊𝚝𝚎𝚛.")
+        bot.reply_to(m, "🔴 Bot is currently OFF. Try again later.")
         return
     
     if is_banned(uid):
-        bot.reply_to(m, "🚫 𝚈𝚘𝚞 𝚊𝚛𝚎 𝚋𝚊𝚗𝚗𝚎𝚍!")
+        bot.reply_to(m, "🚫 You are banned!")
         return
     
     if not check_all_channels(uid):
-        bot.reply_to(m, "🔒 𝙹𝚘𝚒𝚗 𝚛𝚎𝚚𝚞𝚒𝚛𝚎𝚍 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜!", reply_markup=get_join_keyboard())
+        bot.reply_to(m, "🔒 Join required channels!", reply_markup=get_join_keyboard())
         return
     
     files = get_files(uid)
     if not files:
-        bot.reply_to(m, "📁 *𝙽𝚘 𝚏𝚒𝚕𝚎𝚜 𝚞𝚙𝚕𝚘𝚊𝚍𝚎𝚍 𝚢𝚎𝚝*\n\n𝚂𝚎𝚗𝚍 𝚊 `.𝚙𝚢` 𝚏𝚒𝚕𝚎 𝚝𝚘 𝚐𝚎𝚝 𝚜𝚝𝚊𝚛𝚝𝚎𝚍!",
+        bot.reply_to(m, "📁 *No files uploaded yet*\n\nSend a `.py` file to get started!",
                     parse_mode="Markdown", reply_markup=main_kb(uid))
     else:
-        bot.reply_to(m, "📁 *𝚈𝚘𝚞𝚛 𝙵𝚒𝚕𝚎𝚜:*", parse_mode="Markdown", reply_markup=files_kb(uid))
+        bot.reply_to(m, "📁 *Your Files:*", parse_mode="Markdown", reply_markup=files_kb(uid))
 
 @bot.message_handler(content_types=['document'])
 def handle_doc(m):
     uid = m.from_user.id
     
-    # Check bot status first
     bot_status, bot_reason = get_bot_status()
     if bot_status == "off" and not is_admin(uid):
-        bot.reply_to(m, f"🔴 *𝙱𝚘𝚝 𝚒𝚜 𝙾𝙵𝙵*\n\n𝚁𝚎𝚊𝚜𝚘𝚗: {bot_reason if bot_reason else '𝙼𝚊𝚒𝚗𝚝𝚎𝚗𝚊𝚗𝚌𝚎'}\n\n𝙾𝚗𝚕𝚢 𝚊𝚍𝚖𝚒𝚗 𝚌𝚊𝚗 𝚞𝚙𝚕𝚘𝚊𝚍 𝚛𝚒𝚐𝚑𝚝 𝚗𝚘𝚠.", parse_mode="Markdown")
+        bot.reply_to(m, f"🔴 *Bot is OFF*\n\nReason: {bot_reason if bot_reason else 'Maintenance'}\n\nOnly admin can upload right now.", parse_mode="Markdown")
         return
     
     if is_banned(uid):
-        bot.reply_to(m, "🚫 𝚈𝚘𝚞 𝚊𝚛𝚎 𝚋𝚊𝚗𝚗𝚎𝚍!")
+        bot.reply_to(m, "🚫 You are banned!")
         return
     
     if not check_all_channels(uid):
-        bot.reply_to(m, "🔒 𝙹𝚘𝚒𝚗 𝚛𝚎𝚚𝚞𝚒𝚛𝚎𝚍 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜 𝚏𝚒𝚛𝚜𝚝!", reply_markup=get_join_keyboard())
+        bot.reply_to(m, "🔒 Join required channels first!", reply_markup=get_join_keyboard())
         return
     
     if uid in running:
-        bot.reply_to(m, f"⚠️ 𝙰𝚕𝚛𝚎𝚊𝚍𝚢 𝚛𝚞𝚗𝚗𝚒𝚗𝚐 𝚊 𝚜𝚌𝚛𝚒𝚙𝚝: `{running[uid]}`\n𝚂𝚝𝚘𝚙 𝚒𝚝 𝚏𝚒𝚛𝚜𝚝!", parse_mode="Markdown")
+        bot.reply_to(m, f"⚠️ Already running a script: `{running[uid]}`\nStop it first!", parse_mode="Markdown")
         return
     
     can_up, msg = can_upload(uid)
@@ -416,18 +434,17 @@ def handle_doc(m):
     
     doc = m.document
     if not doc.file_name.endswith('.py'):
-        bot.reply_to(m, "❌ *𝙾𝚗𝚕𝚢 `.𝚙𝚢` 𝚏𝚒𝚕𝚎𝚜 𝚊𝚛𝚎 𝚊𝚕𝚕𝚘𝚠𝚎𝚍!*", parse_mode="Markdown")
+        bot.reply_to(m, "❌ *Only `.py` files are allowed!*", parse_mode="Markdown")
         return
     
     if doc.file_size > 10 * 1024 * 1024:
-        bot.reply_to(m, "❌ *𝙵𝚒𝚕𝚎 𝚝𝚘𝚘 𝚋𝚒𝚐!* 𝙼𝚊𝚡 10𝙼𝙱", parse_mode="Markdown")
+        bot.reply_to(m, "❌ *File too big!* Max 10MB", parse_mode="Markdown")
         return
     
-    # Apply cooldown for normal users
     if not is_admin(uid):
         user_cooldown[uid] = time.time()
     
-    status_msg = bot.reply_to(m, "📥 *𝙳𝚘𝚠𝚗𝚕𝚘𝚊𝚍𝚒𝚗𝚐 𝚏𝚒𝚕𝚎...*", parse_mode="Markdown")
+    status_msg = bot.reply_to(m, "📥 *Downloading file...*", parse_mode="Markdown")
     
     try:
         file_info = bot.get_file(doc.file_id)
@@ -439,19 +456,16 @@ def handle_doc(m):
         with open(path, 'wb') as w:
             w.write(downloaded)
         
-        bot.edit_message_text("🔍 *𝚂𝚌𝚊𝚗𝚗𝚒𝚗𝚐 𝚍𝚎𝚙𝚎𝚗𝚍𝚎𝚗𝚌𝚒𝚎𝚜...*", m.chat.id, status_msg.message_id, parse_mode="Markdown")
+        safe_edit_message(m.chat.id, status_msg.message_id, "🔍 *Scanning dependencies...*")
         imports = get_imports(path)
         
         if imports:
-            bot.edit_message_text(f"📦 *𝙵𝚘𝚞𝚗𝚍 {len(imports)} 𝚙𝚊𝚌𝚔𝚊𝚐𝚎(𝚜)*\n𝙸𝚗𝚜𝚝𝚊𝚕𝚕𝚒𝚗𝚐...", 
-                                 m.chat.id, status_msg.message_id, parse_mode="Markdown")
+            safe_edit_message(m.chat.id, status_msg.message_id, f"📦 *Found {len(imports)} package(s)*\nInstalling...")
             results = install_packages(imports, m.chat.id, status_msg.message_id)
             result_text = "\n".join(results)
-            bot.edit_message_text(f"📦 *𝙸𝚗𝚜𝚝𝚊𝚕𝚕𝚊𝚝𝚒𝚘𝚗 𝚁𝚎𝚜𝚞𝚕𝚝𝚜:*\n{result_text}", 
-                                 m.chat.id, status_msg.message_id, parse_mode="Markdown")
+            safe_edit_message(m.chat.id, status_msg.message_id, f"📦 *Installation Results:*\n{result_text}")
         else:
-            bot.edit_message_text("✅ *𝙽𝚘 𝚎𝚡𝚝𝚎𝚛𝚗𝚊𝚕 𝚍𝚎𝚙𝚎𝚗𝚍𝚎𝚗𝚌𝚒𝚎𝚜 𝚏𝚘𝚞𝚗𝚍*", 
-                                 m.chat.id, status_msg.message_id, parse_mode="Markdown")
+            safe_edit_message(m.chat.id, status_msg.message_id, "✅ *No external dependencies found*")
         
         data = load()
         if str(uid) not in data["users"]:
@@ -466,17 +480,18 @@ def handle_doc(m):
         })
         save(data)
         
-        bot.edit_message_text(
-            f"✅ *𝙵𝚒𝚕𝚎 𝙰𝚍𝚍𝚎𝚍 𝚂𝚞𝚌𝚌𝚎𝚜𝚜𝚏𝚞𝚕𝚕𝚢!*\n\n"
-            f"📄 𝙽𝚊𝚖𝚎: `{name}`\n"
-            f"📦 𝚂𝚒𝚣𝚎: {doc.file_size/1024:.1f}𝙺𝙱\n"
-            f"📊 𝚄𝚜𝚊𝚐𝚎: {len(get_files(uid))}/{get_max_files(uid)} 𝚏𝚒𝚕𝚎𝚜\n\n"
-            f"𝚄𝚜𝚎 /𝚖𝚢𝚏𝚒𝚕𝚎𝚜 𝚝𝚘 𝚛𝚞𝚗 𝚢𝚘𝚞𝚛 𝚜𝚌𝚛𝚒𝚙𝚝",
-            m.chat.id, status_msg.message_id, parse_mode="Markdown", reply_markup=main_kb(uid)
+        safe_edit_message(
+            m.chat.id, status_msg.message_id,
+            f"✅ *File Added Successfully!*\n\n"
+            f"📄 Name: `{name}`\n"
+            f"📦 Size: {doc.file_size/1024:.1f}KB\n"
+            f"📊 Usage: {len(get_files(uid))}/{get_max_files(uid)} files\n\n"
+            f"Use /myfiles to run your script",
+            reply_markup=main_kb(uid)
         )
         
     except Exception as e:
-        bot.edit_message_text(f"❌ *𝙴𝚛𝚛𝚘𝚛:* {str(e)[:200]}", m.chat.id, status_msg.message_id, parse_mode="Markdown")
+        safe_edit_message(m.chat.id, status_msg.message_id, f"❌ *Error:* {str(e)[:200]}")
 
 @bot.message_handler(commands=['broadcast'])
 def broadcast_cmd(m):
@@ -484,7 +499,7 @@ def broadcast_cmd(m):
     if not is_admin(uid):
         return
     
-    bot.reply_to(m, "📢 *𝚂𝚎𝚗𝚍 𝚝𝚑𝚎 𝚖𝚎𝚜𝚜𝚊𝚐𝚎 𝚝𝚘 𝚋𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝*", parse_mode="Markdown")
+    bot.reply_to(m, "📢 *Send the message to broadcast*", parse_mode="Markdown")
     bot.register_next_step_handler(m, process_broadcast)
 
 def process_broadcast(m):
@@ -496,24 +511,24 @@ def process_broadcast(m):
     data = load()
     users = list(data["users"].keys())
     
-    status_msg = bot.reply_to(m, f"📢 *𝙱𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝𝚒𝚗𝚐 𝚝𝚘 {len(users)} 𝚞𝚜𝚎𝚛𝚜...*", parse_mode="Markdown")
+    status_msg = bot.reply_to(m, f"📢 *Broadcasting to {len(users)} users...*", parse_mode="Markdown")
     
     success = 0
     fail = 0
     
     for user_id in users:
         try:
-            bot.send_message(int(user_id), f"📢 *𝙰𝚗𝚗𝚘𝚞𝚗𝚌𝚎𝚖𝚎𝚗𝚝*\n\n{msg}", parse_mode="Markdown")
+            bot.send_message(int(user_id), f"📢 *Announcement*\n\n{msg}", parse_mode="Markdown")
             success += 1
         except:
             fail += 1
         time.sleep(0.05)
     
-    bot.edit_message_text(
-        f"✅ *𝙱𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝 𝙲𝚘𝚖𝚙𝚕𝚎𝚝𝚎*\n\n"
-        f"✅ 𝚂𝚎𝚗𝚝: {success}\n"
-        f"❌ 𝙵𝚊𝚒𝚕𝚎𝚍: {fail}",
-        m.chat.id, status_msg.message_id, parse_mode="Markdown"
+    safe_edit_message(
+        m.chat.id, status_msg.message_id,
+        f"✅ *Broadcast Complete*\n\n"
+        f"✅ Sent: {success}\n"
+        f"❌ Failed: {fail}"
     )
 
 # ============================================
@@ -525,51 +540,49 @@ def handle_callback(c):
     uid = c.from_user.id
     cmd = c.data
     
-    # Admin commands check
     admin_commands = ['adm_', 'add_channel', 'remove_ch_', 'bot_on', 'bot_off', 'give_slot_']
     if any(cmd.startswith(x) for x in admin_commands):
         if not is_admin(uid):
-            bot.answer_callback_query(c.id, "𝙰𝚍𝚖𝚒𝚗 𝚊𝚌𝚌𝚎𝚜𝚜 𝚛𝚎𝚚𝚞𝚒𝚛𝚎𝚍!", show_alert=True)
+            safe_answer_callback(c.id, "Admin access required!", show_alert=True)
             return
     
-    # Banned check for non-admin
     if is_banned(uid) and not is_admin(uid):
-        bot.answer_callback_query(c.id, "𝚈𝚘𝚞 𝚊𝚛𝚎 𝚋𝚊𝚗𝚗𝚎𝚍!", show_alert=True)
+        safe_answer_callback(c.id, "You are banned!", show_alert=True)
         return
     
     # ========== BOT ON/OFF CONTROL ==========
     if cmd == "bot_on" and is_admin(uid):
         set_bot_status("on", "")
-        bot.answer_callback_query(c.id, "✅ 𝙱𝚘𝚝 𝚒𝚜 𝙾𝙽 𝙽𝙾𝚆!")
-        bot.edit_message_text("👑 *𝙰𝚍𝚖𝚒𝚗 𝙿𝚊𝚗𝚎𝚕*", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_answer_callback(c.id, "✅ Bot is ON NOW!")
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "👑 *Admin Panel*", reply_markup=admin_panel_kb())
         return
     
     if cmd == "bot_off" and is_admin(uid):
-        bot.edit_message_text("🔴 *𝚃𝚄𝚁𝙽 𝙱𝙾𝚃 𝙾𝙵𝙵*\n\n𝚂𝚎𝚗𝚍 𝚛𝚎𝚊𝚜𝚘𝚗 (𝚘𝚙𝚝𝚒𝚘𝚗𝚊𝚕):\n/𝚌𝚊𝚗𝚌𝚎𝚕 𝚝𝚘 𝚊𝚋𝚘𝚛𝚝",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown")
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "🔴 *TURN BOT OFF*\n\nSend reason (optional):\n/cancel to abort")
         bot.register_next_step_handler(c.message, lambda m: set_bot_off_with_reason(m, c.message.chat.id, c.message.message_id))
         return
     
-    # ========== GIVE EXTRA SLOT TO USER ==========
+    # ========== GIVE EXTRA SLOT ==========
     if cmd == "adm_give_slot" and is_admin(uid):
-        bot.edit_message_text("➕ *𝙶𝚒𝚟𝚎 𝙴𝚡𝚝𝚛𝚊 𝚂𝚕𝚘𝚝*\n\n𝚂𝚎𝚗𝚍 𝚝𝚑𝚎 𝚞𝚜𝚎𝚛 𝙸𝙳 𝚝𝚘 𝚐𝚒𝚟𝚎 𝚊𝚗 𝚎𝚡𝚝𝚛𝚊 𝚏𝚒𝚕𝚎 𝚜𝚕𝚘𝚝.",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown")
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "➕ *Give Extra Slot*\n\nSend the user ID to give an extra file slot.")
         bot.register_next_step_handler(c.message, give_extra_slot_process)
         return
     
     # ========== CHANNEL CHECK ==========
     if cmd == "check_channels":
         if check_all_channels(uid):
-            bot.edit_message_text("✅ *𝙰𝚕𝚕 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜 𝚟𝚎𝚛𝚒𝚏𝚒𝚎𝚍!*", c.message.chat.id, c.message.message_id,
-                                 parse_mode="Markdown", reply_markup=main_kb(uid))
+            safe_edit_message(c.message.chat.id, c.message.message_id,
+                             "✅ *All channels verified!*", reply_markup=main_kb(uid))
         else:
-            bot.answer_callback_query(c.id, "𝙿𝚕𝚎𝚊𝚜𝚎 𝚓𝚘𝚒𝚗 𝚊𝚕𝚕 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜 𝚏𝚒𝚛𝚜𝚝!", show_alert=True)
+            safe_answer_callback(c.id, "Please join all channels first!", show_alert=True)
     
     # ========== ADMIN PANEL ==========
     elif cmd == "admin_panel" and is_admin(uid):
-        bot.edit_message_text("👑 *𝙰𝚍𝚖𝚒𝚗 𝙿𝚊𝚗𝚎𝚕*", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "👑 *Admin Panel*", reply_markup=admin_panel_kb())
     
     elif cmd == "adm_stats" and is_admin(uid):
         data = load()
@@ -578,61 +591,57 @@ def handle_callback(c):
         bot_status, _ = get_bot_status()
         
         stats = (
-            f"📊 *𝚂𝚎𝚛𝚟𝚎𝚛 𝚂𝚝𝚊𝚝𝚒𝚜𝚝𝚒𝚌𝚜*\n\n"
-            f"🤖 𝙱𝚘𝚝 𝚂𝚝𝚊𝚝𝚞𝚜: `{'🟢 𝙾𝙽' if bot_status == 'on' else '🔴 𝙾𝙵𝙵'}`\n"
-            f"👥 *𝚄𝚜𝚎𝚛𝚜:* `{len(data['users'])}`\n"
-            f"📁 *𝙵𝚒𝚕𝚎𝚜:* `{total_files}`\n"
-            f"🏃 *𝚁𝚞𝚗𝚗𝚒𝚗𝚐:* `{running_count}`\n"
-            f"📱 *𝙳𝚎𝚟𝚒𝚌𝚎𝚜:* `{len(data.get('devices', {}))}`\n"
-            f"🚫 *𝙱𝚊𝚗𝚗𝚎𝚍:* `{len(data.get('banned', []))}`"
+            f"📊 *Server Statistics*\n\n"
+            f"🤖 Bot Status: `{'🟢 ON' if bot_status == 'on' else '🔴 OFF'}`\n"
+            f"👥 *Users:* `{len(data['users'])}`\n"
+            f"📁 *Files:* `{total_files}`\n"
+            f"🏃 *Running:* `{running_count}`\n"
+            f"📱 *Devices:* `{len(data.get('devices', {}))}`\n"
+            f"🚫 *Banned:* `{len(data.get('banned', []))}`"
         )
-        bot.edit_message_text(stats, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id, stats, reply_markup=admin_panel_kb())
     
     elif cmd == "adm_users" and is_admin(uid):
         data = load()
-        users_text = "👥 *𝚄𝚜𝚎𝚛 𝙻𝚒𝚜𝚝*\n\n"
+        users_text = "👥 *User List*\n\n"
         for i, (uid_str, info) in enumerate(list(data['users'].items())[:20], 1):
             file_count = len(info.get('files', []))
             max_files = get_max_files(int(uid_str))
-            users_text += f"{i}. `{uid_str[:15]}...` | {file_count}/{max_files} 𝚏𝚒𝚕𝚎𝚜\n"
+            users_text += f"{i}. `{uid_str[:15]}...` | {file_count}/{max_files} files\n"
         
         if len(data['users']) > 20:
-            users_text += f"\n... 𝚊𝚗𝚍 {len(data['users']) - 20} 𝚖𝚘𝚛𝚎"
+            users_text += f"\n... and {len(data['users']) - 20} more"
         
-        bot.edit_message_text(users_text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id, users_text, reply_markup=admin_panel_kb())
     
     elif cmd == "adm_devices" and is_admin(uid):
         data = load()
         devices = data.get('devices', {})
         if not devices:
-            text = "📱 *𝙽𝚘 𝚍𝚎𝚟𝚒𝚌𝚎𝚜 𝚛𝚎𝚌𝚘𝚛𝚍𝚎𝚍*"
+            text = "📱 *No devices recorded*"
         else:
-            text = "📱 *𝙳𝚎𝚟𝚒𝚌𝚎 𝚃𝚛𝚊𝚌𝚔𝚎𝚛*\n\n"
+            text = "📱 *Device Tracker*\n\n"
             for device_id, info in list(devices.items())[:15]:
                 users = info.get('users', [])
                 last_active = datetime.fromtimestamp(info.get('last_active', time.time())).strftime('%Y-%m-%d %H:%M')
                 text += f"🆔 `{device_id[:12]}...`\n"
-                text += f"   👥 {len(users)} 𝚊𝚌𝚌𝚘𝚞𝚗𝚝(𝚜)\n"
-                text += f"   ⏱️ 𝙻𝚊𝚜𝚝: {last_active}\n\n"
-        bot.edit_message_text(text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+                text += f"   👥 {len(users)} account(s)\n"
+                text += f"   ⏱️ Last: {last_active}\n\n"
+        safe_edit_message(c.message.chat.id, c.message.message_id, text, reply_markup=admin_panel_kb())
     
     elif cmd == "adm_channels" and is_admin(uid):
         channels = load_force_channels()
         if not channels:
-            text = "🔗 *𝙵𝚘𝚛𝚌𝚎 𝙲𝚑𝚊𝚗𝚗𝚎𝚕𝚜*\n\n𝙽𝚘 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜 𝚌𝚘𝚗𝚏𝚒𝚐𝚞𝚛𝚎𝚍."
+            text = "🔗 *Force Channels*\n\nNo channels configured."
         else:
-            text = "🔗 *𝙵𝚘𝚛𝚌𝚎 𝙲𝚑𝚊𝚗𝚗𝚎𝚕𝚜*\n\n"
+            text = "🔗 *Force Channels*\n\n"
             for ch in channels:
                 text += f"📢 @{ch['username']} - {ch['name']}\n"
-        bot.edit_message_text(text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=channels_management_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id, text, reply_markup=channels_management_kb())
     
     elif cmd == "add_channel" and is_admin(uid):
-        bot.edit_message_text("➕ *𝙰𝚍𝚍 𝙵𝚘𝚛𝚌𝚎 𝙲𝚑𝚊𝚗𝚗𝚎𝚕*\n\n𝚂𝚎𝚗𝚍 𝚌𝚑𝚊𝚗𝚗𝚎𝚕 𝚞𝚜𝚎𝚛𝚗𝚊𝚖𝚎 (𝚠𝚒𝚝𝚑𝚘𝚞𝚝 @):",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown")
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "➕ *Add Force Channel*\n\nSend channel username (without @):")
         bot.register_next_step_handler(c.message, add_channel_process)
     
     elif cmd.startswith("remove_ch_") and is_admin(uid):
@@ -640,42 +649,40 @@ def handle_callback(c):
         channels = load_force_channels()
         channels = [ch for ch in channels if ch['username'] != username]
         save_force_channels(channels)
-        bot.answer_callback_query(c.id, f"𝚁𝚎𝚖𝚘𝚟𝚎𝚍 @{username}", show_alert=True)
-        bot.edit_message_text("✅ *𝙲𝚑𝚊𝚗𝚗𝚎𝚕 𝚛𝚎𝚖𝚘𝚟𝚎𝚍*", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_answer_callback(c.id, f"Removed @{username}", show_alert=True)
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "✅ *Channel removed*", reply_markup=admin_panel_kb())
     
     elif cmd == "adm_broadcast" and is_admin(uid):
-        bot.edit_message_text("📢 *𝙱𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝*\n\n𝚄𝚜𝚎 /𝚋𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝 𝚌𝚘𝚖𝚖𝚊𝚗𝚍.",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "📢 *Broadcast*\n\nUse /broadcast command.", reply_markup=admin_panel_kb())
     
     elif cmd == "adm_ban" and is_admin(uid):
         data = load()
         banned = data.get('banned', [])
         if banned:
-            text = "🚫 *𝙱𝚊𝚗𝚗𝚎𝚍 𝚄𝚜𝚎𝚛𝚜*\n\n"
+            text = "🚫 *Banned Users*\n\n"
             for uid_str in banned[:20]:
                 text += f"• `{uid_str[:15]}...`\n"
-            text += "\n𝚂𝚎𝚗𝚍 𝚞𝚜𝚎𝚛 𝙸𝙳 𝚝𝚘 𝚞𝚗𝚋𝚊𝚗."
+            text += "\nSend user ID to unban."
         else:
-            text = "🚫 *𝙽𝚘 𝚋𝚊𝚗𝚗𝚎𝚍 𝚞𝚜𝚎𝚛𝚜*\n\n𝚂𝚎𝚗𝚍 𝚞𝚜𝚎𝚛 𝙸𝙳 𝚝𝚘 𝚋𝚊𝚗."
+            text = "🚫 *No banned users*\n\nSend user ID to ban."
         
-        bot.edit_message_text(text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown")
+        safe_edit_message(c.message.chat.id, c.message.message_id, text)
         bot.register_next_step_handler(c.message, ban_user_process)
     
     elif cmd == "adm_backup" and is_admin(uid):
         backup_name = f"backup_{int(time.time())}.json"
         shutil.copy(DATA_FILE, f"backups/{backup_name}")
-        bot.edit_message_text(f"✅ *𝙱𝚊𝚌𝚔𝚞𝚙 𝚌𝚛𝚎𝚊𝚝𝚎𝚍*\n`𝚋𝚊𝚌𝚔𝚞𝚙𝚜/{backup_name}`",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown",
-                             reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         f"✅ *Backup created*\n`backups/{backup_name}`", reply_markup=admin_panel_kb())
     
     elif cmd == "adm_clear" and is_admin(uid):
         kb = InlineKeyboardMarkup()
-        kb.add(InlineKeyboardButton("✅ 𝚈𝚎𝚜, 𝙲𝚕𝚎𝚊𝚛 𝙰𝚕𝚕", callback_data="confirm_clear"))
-        kb.add(InlineKeyboardButton("❌ 𝙲𝚊𝚗𝚌𝚎𝚕", callback_data="admin_panel"))
-        bot.edit_message_text("⚠️ *𝙳𝙰𝙽𝙶𝙴𝚁*\n\n𝚃𝚑𝚒𝚜 𝚠𝚒𝚕𝚕 𝚍𝚎𝚕𝚎𝚝𝚎 𝙰𝙻𝙻 𝚞𝚜𝚎𝚛 𝚍𝚊𝚝𝚊!\n𝙰𝚛𝚎 𝚢𝚘𝚞 𝚜𝚞𝚛𝚎?",
-                             c.message.chat.id, c.message.message_id, parse_mode="Markdown", reply_markup=kb)
+        kb.add(InlineKeyboardButton("✅ Yes, Clear All", callback_data="confirm_clear"))
+        kb.add(InlineKeyboardButton("❌ Cancel", callback_data="admin_panel"))
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "⚠️ *DANGER*\n\nThis will delete ALL user data!\nAre you sure?", reply_markup=kb)
     
     elif cmd == "confirm_clear" and is_admin(uid):
         for f in os.listdir("user_scripts"):
@@ -684,66 +691,63 @@ def handle_callback(c):
             except:
                 pass
         save({"users": {}, "devices": {}, "banned": []})
-        bot.edit_message_text("✅ *𝙰𝚕𝚕 𝚍𝚊𝚝𝚊 𝚌𝚕𝚎𝚊𝚛𝚎𝚍!*", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=admin_panel_kb())
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "✅ *All data cleared!*", reply_markup=admin_panel_kb())
     
     # ========== USER COMMANDS ==========
     elif cmd == "back":
-        bot.edit_message_text("✨ *𝙼𝚊𝚒𝚗 𝙼𝚎𝚗𝚞*", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=main_kb(uid))
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         "✨ *Main Menu*", reply_markup=main_kb(uid))
     
     elif cmd == "files":
         files = get_files(uid)
         if not files:
-            bot.edit_message_text("📁 *𝙽𝚘 𝚏𝚒𝚕𝚎𝚜*", c.message.chat.id, c.message.message_id,
-                                 parse_mode="Markdown", reply_markup=main_kb(uid))
+            safe_edit_message(c.message.chat.id, c.message.message_id,
+                             "📁 *No files*", reply_markup=main_kb(uid))
         else:
-            bot.edit_message_text("📁 *𝚈𝚘𝚞𝚛 𝙵𝚒𝚕𝚎𝚜*", c.message.chat.id, c.message.message_id,
-                                 parse_mode="Markdown", reply_markup=files_kb(uid))
+            safe_edit_message(c.message.chat.id, c.message.message_id,
+                             "📁 *Your Files*", reply_markup=files_kb(uid))
     
     elif cmd == "stats":
         files = get_files(uid)
         max_files = get_max_files(uid)
         text = (
-            f"📊 *𝚈𝚘𝚞𝚛 𝚂𝚝𝚊𝚝𝚜*\n\n"
-            f"📁 𝙵𝚒𝚕𝚎𝚜: `{len(files)}/{max_files}`\n"
-            f"🏃 𝚁𝚞𝚗𝚗𝚒𝚗𝚐: `{'𝚈𝚎𝚜' if uid in running else '𝙽𝚘'}`\n"
-            f"👑 𝙰𝚍𝚖𝚒𝚗: `{'𝚈𝚎𝚜' if is_admin(uid) else '𝙽𝚘'}`\n"
-            f"💾 𝚂𝚝𝚘𝚛𝚊𝚐𝚎: `{sum(f.get('size', 0) for f in files)/1024/1024:.2f}𝙼𝙱`"
+            f"📊 *Your Stats*\n\n"
+            f"📁 Files: `{len(files)}/{max_files}`\n"
+            f"🏃 Running: `{'Yes' if uid in running else 'No'}`\n"
+            f"👑 Admin: `{'Yes' if is_admin(uid) else 'No'}`\n"
+            f"💾 Storage: `{sum(f.get('size', 0) for f in files)/1024/1024:.2f}MB`"
         )
-        bot.edit_message_text(text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=main_kb(uid))
+        safe_edit_message(c.message.chat.id, c.message.message_id, text, reply_markup=main_kb(uid))
     
     elif cmd == "help":
         help_text = (
-            f"❓ *𝙷𝚎𝚕𝚙 𝙶𝚞𝚒𝚍𝚎*\n\n"
-            f"📤 *𝚄𝚙𝚕𝚘𝚊𝚍 𝙵𝚒𝚕𝚎*\n"
-            f"𝚂𝚎𝚗𝚍 𝚊𝚗𝚢 `.𝚙𝚢` 𝚏𝚒𝚕𝚎 𝚝𝚘 𝚝𝚑𝚎 𝚋𝚘𝚝\n\n"
-            f"▶️ *𝚁𝚞𝚗 𝚂𝚌𝚛𝚒𝚙𝚝*\n"
-            f"𝚄𝚜𝚎 /𝚖𝚢𝚏𝚒𝚕𝚎𝚜 → 𝚂𝚎𝚕𝚎𝚌𝚝 𝚏𝚒𝚕𝚎 → 𝚂𝚝𝚊𝚛𝚝\n\n"
-            f"🛑 *𝚂𝚝𝚘𝚙 𝚂𝚌𝚛𝚒𝚙𝚝*\n"
-            f"𝚂𝚊𝚖𝚎 𝚖𝚎𝚗𝚞 → 𝚂𝚝𝚘𝚙\n\n"
-            f"📦 *𝙳𝚎𝚙𝚎𝚗𝚍𝚎𝚗𝚌𝚒𝚎𝚜*\n"
-            f"𝙱𝚘𝚝 𝚊𝚞𝚝𝚘-𝚒𝚗𝚜𝚝𝚊𝚕𝚕𝚜 𝚛𝚎𝚚𝚞𝚒𝚛𝚎𝚍 𝚙𝚊𝚌𝚔𝚊𝚐𝚎𝚜\n\n"
-            f"⚠️ *𝙻𝚒𝚖𝚒𝚝𝚜*\n"
-            f"• 𝙼𝚊𝚡 1 𝚏𝚒𝚕𝚎 𝚙𝚎𝚛 𝚞𝚜𝚎𝚛\n"
-            f"• 𝙰𝚍𝚖𝚒𝚗 𝚌𝚊𝚗 𝚐𝚒𝚟𝚎 𝚎𝚡𝚝𝚛𝚊 𝚜𝚕𝚘𝚝𝚜\n"
-            f"• 𝙼𝚊𝚡 10𝙼𝙱 𝚙𝚎𝚛 𝚏𝚒𝚕𝚎\n"
-            f"• 𝙽𝚘 𝚝𝚒𝚖𝚎 𝚕𝚒𝚖𝚒𝚝"
+            f"❓ *Help Guide*\n\n"
+            f"📤 *Upload File*\n"
+            f"Send any `.py` file to the bot\n\n"
+            f"▶️ *Run Script*\n"
+            f"Use /myfiles → Select file → Start\n\n"
+            f"🛑 *Stop Script*\n"
+            f"Same menu → Stop\n\n"
+            f"📦 *Dependencies*\n"
+            f"Bot auto-installs required packages\n\n"
+            f"⚠️ *Limits*\n"
+            f"• Max 1 file per user\n"
+            f"• Admin can give extra slots\n"
+            f"• Max 10MB per file\n"
+            f"• No time limit"
         )
-        bot.edit_message_text(help_text, c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=main_kb(uid))
+        safe_edit_message(c.message.chat.id, c.message.message_id, help_text, reply_markup=main_kb(uid))
     
     # ========== FILE ACTIONS ==========
     elif cmd.startswith("file_"):
         name = cmd[5:]
         for f in get_files(uid):
             if f["name"] == name:
-                status = "🔄 𝚁𝚞𝚗𝚗𝚒𝚗𝚐" if f["status"] == "run" else "⏸️ 𝚂𝚝𝚘𝚙𝚙𝚎𝚍"
+                status = "🔄 Running" if f["status"] == "run" else "⏸️ Stopped"
                 uploaded = datetime.fromtimestamp(f.get('uploaded', time.time())).strftime('%Y-%m-%d')
-                text = f"📄 *{name}*\n\n𝚂𝚝𝚊𝚝𝚞𝚜: {status}\n𝚄𝚙𝚕𝚘𝚊𝚍𝚎𝚍: {uploaded}\n𝚂𝚒𝚣𝚎: {f.get('size', 0)/1024:.1f}𝙺𝙱"
-                bot.edit_message_text(text, c.message.chat.id, c.message.message_id,
-                                     parse_mode="Markdown", reply_markup=action_kb(name, f["status"]))
+                text = f"📄 *{name}*\n\nStatus: {status}\nUploaded: {uploaded}\nSize: {f.get('size', 0)/1024:.1f}KB"
+                safe_edit_message(c.message.chat.id, c.message.message_id, text, reply_markup=action_kb(name, f["status"]))
                 return
     
     elif cmd.startswith("view_"):
@@ -754,11 +758,11 @@ def handle_callback(c):
                     with open(f["path"], 'r', encoding='utf-8') as code_file:
                         code = code_file.read(3000)
                     code_preview = code[:2000] + ("..." if len(code) > 2000 else "")
-                    bot.edit_message_text(f"📄 *{name}*\n```python\n{code_preview}\n```",
-                                         c.message.chat.id, c.message.message_id,
-                                         parse_mode="Markdown", reply_markup=action_kb(name, f["status"]))
+                    safe_edit_message(c.message.chat.id, c.message.message_id,
+                                     f"📄 *{name}*\n```python\n{code_preview}\n```",
+                                     reply_markup=action_kb(name, f["status"]))
                 except:
-                    bot.answer_callback_query(c.id, "𝙲𝚊𝚗𝚗𝚘𝚝 𝚛𝚎𝚊𝚍 𝚏𝚒𝚕𝚎", show_alert=True)
+                    safe_answer_callback(c.id, "Cannot read file", show_alert=True)
                 return
     
     elif cmd.startswith("del_"):
@@ -776,8 +780,8 @@ def handle_callback(c):
             data["users"][str(uid)]["files"] = [f for f in data["users"][str(uid)]["files"] if f["name"] != name]
             save(data)
         
-        bot.edit_message_text(f"🗑️ *𝙳𝚎𝚕𝚎𝚝𝚎𝚍:* `{name}`", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=main_kb(uid))
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         f"🗑️ *Deleted:* `{name}`", reply_markup=main_kb(uid))
     
     elif cmd.startswith("stop_"):
         name = cmd[5:]
@@ -792,20 +796,19 @@ def handle_callback(c):
                     break
             save(data)
         
-        bot.edit_message_text(f"🛑 *𝚂𝚝𝚘𝚙𝚙𝚎𝚍:* `{name}`", c.message.chat.id, c.message.message_id,
-                             parse_mode="Markdown", reply_markup=main_kb(uid))
+        safe_edit_message(c.message.chat.id, c.message.message_id,
+                         f"🛑 *Stopped:* `{name}`", reply_markup=main_kb(uid))
     
     elif cmd.startswith("start_"):
         name = cmd[6:]
         
-        # Check if bot is OFF (only admin can start scripts when bot is off)
         bot_status, _ = get_bot_status()
         if bot_status == "off" and not is_admin(uid):
-            bot.answer_callback_query(c.id, "𝙱𝚘𝚝 𝚒𝚜 𝙾𝙵𝙵! 𝙾𝚗𝚕𝚢 𝚊𝚍𝚖𝚒𝚗 𝚌𝚊𝚗 𝚛𝚞𝚗 𝚜𝚌𝚛𝚒𝚙𝚝𝚜.", show_alert=True)
+            safe_answer_callback(c.id, "Bot is OFF! Only admin can run scripts.", show_alert=True)
             return
         
         if uid in running:
-            bot.answer_callback_query(c.id, f"𝙰𝚕𝚛𝚎𝚊𝚍𝚢 𝚛𝚞𝚗𝚗𝚒𝚗𝚐: {running[uid]}", show_alert=True)
+            safe_answer_callback(c.id, f"Already running: {running[uid]}", show_alert=True)
             return
         
         data = load()
@@ -814,9 +817,9 @@ def handle_callback(c):
                 running[uid] = name
                 f["status"] = "run"
                 save(data)
-                bot.edit_message_text(f"▶️ *𝚂𝚝𝚊𝚛𝚝𝚎𝚍:* `{name}`\n⏱️ 𝙽𝚘 𝚝𝚒𝚖𝚎 𝚕𝚒𝚖𝚒𝚝\n\n𝚂𝚌𝚛𝚒𝚙𝚝 𝚒𝚜 𝚛𝚞𝚗𝚗𝚒𝚗𝚐...",
-                                     c.message.chat.id, c.message.message_id,
-                                     parse_mode="Markdown", reply_markup=main_kb(uid))
+                safe_edit_message(c.message.chat.id, c.message.message_id,
+                                 f"▶️ *Started:* `{name}`\n⏱️ No time limit\n\nScript is running...",
+                                 reply_markup=main_kb(uid))
                 threading.Thread(target=run_script, args=(f["path"], uid, name, c.message.chat.id), daemon=True).start()
                 return
 
@@ -828,13 +831,13 @@ def set_bot_off_with_reason(m, chat_id, msg_id):
         return
     
     if m.text == "/cancel":
-        bot.edit_message_text("✅ 𝙲𝚊𝚗𝚌𝚎𝚕𝚕𝚎𝚍.", chat_id, msg_id, reply_markup=admin_panel_kb())
+        safe_edit_message(chat_id, msg_id, "✅ Cancelled.", reply_markup=admin_panel_kb())
         return
     
     reason = m.text.strip()
     set_bot_status("off", reason)
-    bot.edit_message_text(f"🔴 *𝙱𝚘𝚝 𝚒𝚜 𝙾𝙵𝙵*\n\n𝚁𝚎𝚊𝚜𝚘𝚗: {reason}", chat_id, msg_id,
-                         parse_mode="Markdown", reply_markup=admin_panel_kb())
+    safe_edit_message(chat_id, msg_id,
+                     f"🔴 *Bot is OFF*\n\nReason: {reason}", reply_markup=admin_panel_kb())
 
 def add_channel_process(m):
     uid = m.from_user.id
@@ -845,7 +848,7 @@ def add_channel_process(m):
     channels = load_force_channels()
     
     if username in [ch['username'] for ch in channels]:
-        bot.reply_to(m, "❌ 𝙲𝚑𝚊𝚗𝚗𝚎𝚕 𝚊𝚕𝚛𝚎𝚊𝚍𝚢 𝚊𝚍𝚍𝚎𝚍!")
+        bot.reply_to(m, "❌ Channel already added!")
         return
     
     try:
@@ -857,9 +860,9 @@ def add_channel_process(m):
             "added_at": time.time()
         })
         save_force_channels(channels)
-        bot.reply_to(m, f"✅ 𝙰𝚍𝚍𝚎𝚍 @{username} 𝚝𝚘 𝚏𝚘𝚛𝚌𝚎 𝚌𝚑𝚊𝚗𝚗𝚎𝚕𝚜!", reply_markup=admin_panel_kb())
+        bot.reply_to(m, f"✅ Added @{username} to force channels!", reply_markup=admin_panel_kb())
     except Exception as e:
-        bot.reply_to(m, f"❌ 𝙴𝚛𝚛𝚘𝚛: {str(e)[:100]}\n𝙼𝚊𝚔𝚎 𝚜𝚞𝚛𝚎 𝚋𝚘𝚝 𝚒𝚜 𝚊𝚍𝚖𝚒𝚗!")
+        bot.reply_to(m, f"❌ Error: {str(e)[:100]}\nMake sure bot is admin!")
 
 def ban_user_process(m):
     uid = m.from_user.id
@@ -875,15 +878,15 @@ def ban_user_process(m):
         
         if target_uid in data["banned"]:
             data["banned"].remove(target_uid)
-            action = "𝚞𝚗𝚋𝚊𝚗𝚗𝚎𝚍"
+            action = "unbanned"
         else:
             data["banned"].append(target_uid)
-            action = "𝚋𝚊𝚗𝚗𝚎𝚍"
+            action = "banned"
         
         save(data)
-        bot.reply_to(m, f"✅ 𝚄𝚜𝚎𝚛 `{target_uid}` {action}!", parse_mode="Markdown", reply_markup=admin_panel_kb())
+        bot.reply_to(m, f"✅ User `{target_uid}` {action}!", parse_mode="Markdown", reply_markup=admin_panel_kb())
     except:
-        bot.reply_to(m, "❌ 𝙸𝚗𝚟𝚊𝚕𝚒𝚍 𝚞𝚜𝚎𝚛 𝙸𝙳!")
+        bot.reply_to(m, "❌ Invalid user ID!")
 
 def give_extra_slot_process(m):
     uid = m.from_user.id
@@ -897,37 +900,22 @@ def give_extra_slot_process(m):
         if str(target_uid) not in data["users"]:
             data["users"][str(target_uid)] = {"files": [], "joined": time.time()}
         
-        # Give extra slot by increasing max (stored in user data)
-        # For normal users we track extra slots separately
         if "extra_slots" not in data["users"][str(target_uid)]:
             data["users"][str(target_uid)]["extra_slots"] = 0
         
         data["users"][str(target_uid)]["extra_slots"] += 1
         save(data)
         
-        bot.reply_to(m, f"✅ 𝙶𝚊𝚟𝚎 +1 𝚎𝚡𝚝𝚛𝚊 𝚏𝚒𝚕𝚎 𝚜𝚕𝚘𝚝 𝚝𝚘 `{target_uid}`!\n\n𝙽𝚘𝚠 𝚝𝚑𝚎𝚢 𝚌𝚊𝚗 𝚞𝚙𝚕𝚘𝚊𝚍 {MAX_FILES_PER_USER + data['users'][str(target_uid)]['extra_slots']} 𝚏𝚒𝚕𝚎𝚜.", 
+        bot.reply_to(m, f"✅ Gave +1 extra file slot to `{target_uid}`!\n\nNow they can upload {MAX_FILES_PER_USER + data['users'][str(target_uid)]['extra_slots']} files.", 
                     parse_mode="Markdown", reply_markup=admin_panel_kb())
         
-        # Notify user
         try:
-            bot.send_message(target_uid, f"🎉 *𝙶𝚘𝚘𝚍 𝙽𝚎𝚠𝚜!*\n\n𝙰𝚍𝚖𝚒𝚗 𝚑𝚊𝚜 𝚐𝚒𝚟𝚎𝚗 𝚢𝚘𝚞 +1 𝚎𝚡𝚝𝚛𝚊 𝚏𝚒𝚕𝚎 𝚜𝚕𝚘𝚝!\n\n𝙽𝚘𝚠 𝚢𝚘𝚞 𝚌𝚊𝚗 𝚞𝚙𝚕𝚘𝚊𝚍 {MAX_FILES_PER_USER + data['users'][str(target_uid)]['extra_slots']} 𝚏𝚒𝚕𝚎𝚜.", parse_mode="Markdown")
+            bot.send_message(target_uid, f"🎉 *Good News!*\n\nAdmin has given you +1 extra file slot!\n\nNow you can upload {MAX_FILES_PER_USER + data['users'][str(target_uid)]['extra_slots']} files.", parse_mode="Markdown")
         except:
             pass
             
     except:
-        bot.reply_to(m, "❌ 𝙸𝚗𝚟𝚊𝚕𝚒𝚍 𝚞𝚜𝚎𝚛 𝙸𝙳!")
-
-# Update get_max_files function to include extra slots
-def get_max_files(uid):
-    if is_admin(uid):
-        return 999999
-    data = load()
-    extra = data["users"].get(str(uid), {}).get("extra_slots", 0)
-    return MAX_FILES_PER_USER + extra
-
-# Override the function
-import builtins
-builtins.get_max_files = get_max_files
+        bot.reply_to(m, "❌ Invalid user ID!")
 
 # ============================================
 # MAIN
@@ -937,17 +925,17 @@ if __name__ == "__main__":
     print("=" * 60)
     print(f"✨ {BOT_NAME}")
     print("=" * 60)
-    print("✅ 𝙱𝚘𝚝 𝚂𝚝𝚊𝚛𝚝𝚎𝚍!")
-    print(f"📊 𝙰𝚍𝚖𝚒𝚗 𝙸𝙳: {ADMIN_IDS[0]}")
-    print("📁 𝙲𝚘𝚖𝚖𝚊𝚗𝚍𝚜:")
-    print("   /𝚜𝚝𝚊𝚛𝚝 - 𝙼𝚊𝚒𝚗 𝚖𝚎𝚗𝚞")
-    print("   /𝚖𝚢𝚏𝚒𝚕𝚎𝚜 - 𝙼𝚊𝚗𝚊𝚐𝚎 𝚏𝚒𝚕𝚎𝚜")
-    print("   /𝚊𝚍𝚖𝚒𝚗 - 𝙰𝚍𝚖𝚒𝚗 𝚙𝚊𝚗𝚎𝚕")
-    print("   /𝚋𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝 - 𝚂𝚎𝚗𝚍 𝚋𝚛𝚘𝚊𝚍𝚌𝚊𝚜𝚝")
+    print("✅ Bot Started!")
+    print(f"📊 Admin ID: {ADMIN_IDS[0]}")
+    print("📁 Commands:")
+    print("   /start - Main menu")
+    print("   /myfiles - Manage files")
+    print("   /admin - Admin panel")
+    print("   /broadcast - Send broadcast")
     print("=" * 60)
     
     try:
         bot.infinity_polling(timeout=30, interval=1)
     except Exception as e:
-        print(f"𝙴𝚛𝚛𝚘𝚛: {e}")
+        print(f"Error: {e}")
         time.sleep(5)
